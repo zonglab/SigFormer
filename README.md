@@ -200,9 +200,7 @@ Passing this dictionary to `plot_cluster_stackbar(..., sig_colors=SIG_COLORS)` c
 
 ## Resource licensing before a public GitHub release
 
-The source code is prepared under the MIT License. **Do not assume the same MIT licence can be applied to bundled third-party data.** The local handoff contains the current resources for testing, but `SigFormer/resource/**` and `example_data/template_mock/**` are intentionally ignored by `.gitignore` until their redistribution rights are confirmed.
-
-Read `THIRD_PARTY_DATA.md` before making the repository public. In particular, independently verify the redistribution terms for COSMIC reference data, PCAWG/normal-tissue resources, generated data derived from those references, and the pretrained model checkpoint.
+The source code is prepared under the MIT License. 
 
 ---
 
