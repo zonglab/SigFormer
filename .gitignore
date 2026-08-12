@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Runtime outputs
+benchmark_*/
+run_PCAWG/
+run_normal/
+run_template_mock/
+_tmp/
+
+# Local validation reports can be regenerated.
+reports/html/*.executed.ipynb
+
+# ---------------------------------------------------------------------------
+# RESOURCE LICENSING SAFETY
+# ---------------------------------------------------------------------------
+# The local handoff bundle intentionally contains resources for validation.
+# Do NOT publish them by accident. Review THIRD_PARTY_DATA.md and the original
+# data/model licences before force-adding any of these paths to a public repo.
+SigFormer/resource/**
+example_data/template_mock/**
+
+# Rendered validation artifacts are delivered locally but need not be versioned.
+reports/html/

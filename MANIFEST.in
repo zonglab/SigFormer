@@ -1,0 +1,2 @@
+include README.md LICENSE THIRD_PARTY_DATA.md CHANGELOG.md
+recursive-include SigFormer/resource *

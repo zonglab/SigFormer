@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=77.0.3", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "SigFormer"
+version = "0.1.0"
+description = "SigFormer mutational-signature decomposition, benchmarking, and cohort-analysis toolkit"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  {name = "SigFormer contributors"}
+]
+keywords = ["mutational signatures", "cancer genomics", "transformer", "SBS96"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Operating System :: POSIX :: Linux",
+]
+dependencies = [
+  "numpy",
+  "pandas",
+  "scipy",
+  "scikit-learn",
+  "matplotlib",
+  "torch",
+]
+
+[project.optional-dependencies]
+analysis = [
+  "umap-learn",
+  "leidenalg",
+  "igraph",
+  "scikit-misc",
+]
+
+[project.scripts]
+sigformer-benchmark = "SigFormer.scripts.s09_bench_cli:main"
+
+[tool.setuptools.packages.find]
+include = ["SigFormer*"]
+
+[tool.setuptools.package-data]
+SigFormer = [
+  "resource/*",
+  "resource/**/*",
+]

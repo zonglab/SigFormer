@@ -1,161 +1,288 @@
-# SigFormer V6
+# SigFormer
 
-SigFormer V6 is a cleaned and accuracy-first rewrite of the V5.x training stack for mutational signature decomposition.
-It keeps the original model idea intact, but fixes several training inconsistencies and adds more realistic confidence/OOD diagnostics.
+SigFormer is a mutational-signature decomposition and analysis toolkit for SBS96 profiles. The repository contains the SigFormer model, synthetic benchmark generation, wrappers for comparison methods, and reproducible cohort-analysis notebooks for PCAWG and normal tissues.
 
-## What changed from V5.x
+## Repository layout
 
-1. **Simplex schedule is explicit and stable**
-   - `entmax_alpha` is no longer trainable.
-   - Training starts with `softmax`, moves to `entmax15`, and finishes with a sparse tail stage.
-
-2. **Reconstruction loss is aligned with training**
-   - In V5.x pretraining, reconstruction loss was computed but not backpropagated.
-   - In V6, reconstruction can contribute gradients through a staged curriculum.
-
-3. **False-positive control is built into main training**
-   - Weak inactive-signature penalties are used during the main training loop.
-   - Late sparse simplex stages reduce diffuse tiny outputs.
-
-4. **Confidence is more useful at inference time**
-   - Confidence target considers both absolute composition error and support mismatch.
-   - Confidence-aware masking is supported for post-processing.
-   - Backbone-to-confidence gradient is detached by default to protect decomposition accuracy.
-
-5. **OOD / de novo suspicion is surfaced explicitly**
-   - The model now exports residual-based novelty diagnostics.
-   - A holdout-style OOD evaluation is run during training.
-
-6. **Evaluation is more complete**
-   - Full evaluation is run every `--eval_every` epochs.
-   - Per-batch loss curves are saved for each epoch.
-   - Raw and confidence-masked performance are both reported.
-
-## File layout
-
-- `s01_core_v6.py`
-  - Core model definition.
-  - Composition head, confidence head, simplex control, masking helper.
-
-- `s02_data_v6.py`
-  - Simulation utilities.
-  - COSMIC summary, de novo bank generation, profile/noise simulation.
-
-- `s03_utils_v6.py`
-  - Logging, metrics, plotting, confidence target builder, evaluation helpers.
-
-- `s03_train_v6.py`
-  - Main training entry point.
-  - One-stage curriculum, checkpointing, periodic evaluation, OOD holdout diagnostics.
-
-- `j04_quickstart_v6.ipynb`
-  - Example notebook for loading pretrained weights and running inference on simulated data.
-
-## Environment
-
-Python 3.10+ is recommended.
-
-Required packages:
-- numpy
-- pandas
-- matplotlib
-- torch
-- entmax
-- jupyter
-
-You also need your local `YZ_vis_sig.py` helper that provides `get_COSMIC()`.
-
-## Training
-
-### Standard one-stage training
-
-```bash
-python s03_train_v6.py \
-  --dir runs/SigFormer_V6_main \
-  --device cuda \
-  --n_epochs 300 \
-  --n_batches 4000 \
-  --batch_size 64 \
-  --lr_base 3e-4 \
-  --eval_every 5
+```text
+SigFormer/
+├── SigFormer/
+│   ├── __init__.py
+│   ├── scripts/
+│   │   ├── s01_Core.py          # model architecture
+│   │   ├── s02_Data.py          # synthetic data generation
+│   │   ├── s03_Util_train.py    # training-only utilities and losses
+│   │   ├── s04_Util_apply.py    # downstream analysis and plotting helpers
+│   │   ├── s05_Train.py         # training entry point
+│   │   ├── s06_wrapper.py       # SigFormer and comparison-method wrappers
+│   │   ├── s07_bench_helper.py  # benchmark-only helpers
+│   │   └── s09_bench_cli.py     # benchmark CLI
+│   └── resource/                # local reference data and model checkpoint
+├── example_data/template_mock/  # 30-sample generated validation cohort
+├── j01_benchmark.ipynb
+├── j02_template.ipynb
+├── j03_demo_PCAWG.ipynb
+├── j04_demo_normal.ipynb
+├── pyproject.toml
+├── LICENSE
+└── THIRD_PARTY_DATA.md
 ```
 
-### Resume from a checkpoint for an extra polishing stage
+The four notebooks are deliberately kept at repository root so that a user can clone the repository, open Jupyter from the root directory, and run them without editing Python search paths.
 
-`--n_epochs` is the **final total epoch index target**, not “extra epochs”.
-So if you resume from epoch 200 and want 100 more epochs, set `--n_epochs 300`.
+---
 
-```bash
-python s03_train_v6.py \
-  --dir runs/SigFormer_V6_stage2 \
-  --device cuda \
-  --resume_ckpt runs/SigFormer_V6_main/3_model_wts/SigFormer_v6_epoch200.pt \
-  --n_epochs 300 \
-  --lr_base 8e-5 \
-  --eval_every 5
-```
+## Installation
 
-### Optional custom curriculum
+### 1. Create the Conda environment
 
-You can pass a TSV with these columns:
-- `epoch_stt`
-- `epoch_end`
-- `simplex`
-- `lambda_recon_scale`
-- `lambda_fp_scale`
-- `depth_low`
-- `depth_mid`
-- `depth_hig`
-- `norm_frac`
-- `use_bucketed_refs`
-- `balanced_tail`
-
-Then:
+The tested research environment is named `SgF`:
 
 ```bash
-python s03_train_v6.py --dir runs/custom --curriculum my_curriculum.tsv
+mamba create -n SgF -y -c pytorch -c nvidia \
+    python=3.10 ipykernel pytorch-gpu=2.3 \
+    r-base=4.5.1 r-devtools r-remotes r-biocmanager r-rstan
+
+conda activate SgF
+python -m ipykernel install --user --name py_SgF
 ```
 
-## Outputs
+### 2. Install Python and Bioconductor dependencies
 
-Inside the run directory:
+```bash
+mamba install -y pandas matplotlib leidenalg scikit-misc scikit-learn umap-learn seaborn
+mamba install -y bioconda::sigprofilerassignment
 
-- `2_eval_figs/`
-  - evaluation grids
-  - OOD holdout scatter
-  - summary plots
+mamba install -y -c conda-forge -c bioconda \
+    bioconductor-variantannotation \
+    bioconductor-summarizedexperiment \
+    bioconductor-bsgenome \
+    bioconductor-bsgenome.hsapiens.ucsc.hg38 \
+    bioconductor-bsgenome.hsapiens.1000genomes.hs37d5 \
+    r-factoextra
+```
 
-- `3_model_wts/`
-  - checkpoint `.pt` files
+### 3. Install the R comparison methods
 
-- `4_batch_loss/`
-  - per-epoch batch loss TSV and PNG
+Start R inside the activated `SgF` environment:
 
-- `summary.tsv`
-  - epoch-level summary table
+```bash
+R
+```
 
-## Inference / notebook usage
+Then install:
 
-Open `j04_quickstart_v6.ipynb` and update:
-- the path to your trained checkpoint
-- any run-specific paths if needed
+```r
+remotes::install_github("gersteinlab/siglasso", upgrade = "never")
+remotes::install_github("kgori/sigfit", upgrade = "never", build_vignettes = FALSE)
+remotes::install_github("Nik-Zainal-Group/signature.tools.lib", dependencies = TRUE, upgrade = "never")
+```
 
-The notebook demonstrates:
-- loading a pretrained model
-- building a reference bank
-- simulating samples
-- running inference
-- applying confidence-aware masking
-- inspecting novelty/OOD diagnostics
+Exit R after installation.
 
-## Notes on interpretation
+### 4. Install MuSiCal
 
-- Use **raw composition** for debugging and ablation.
-- Use **masked composition** for user-facing interpretation when the goal is cleaner support recovery.
-- Treat novelty / OOD outputs as a **warning signal**, not as a guaranteed discovery of a new biological process.
-- Residual-based novelty profiles are only a first approximation of hidden de novo processes.
+After the environment dependencies are already installed:
 
-## License
+```bash
+python -m pip install --no-deps git+https://github.com/parklab/MuSiCal.git
+```
 
-A conservative default for academic release is `MIT` if you want maximum reuse, or `BSD-3-Clause` if you want a slightly more formal academic-style permissive license.
-If the project depends on institutional policy or unpublished components, decide that before public release instead of letting GitHub chaos choose for you.
+`pip install git+https://...` downloads the Git repository into a temporary build location and installs the Python package directly. It does **not** leave a normal working copy for you to edit. The `--no-deps` flag tells pip not to resolve or install MuSiCal's declared dependencies; this is useful here because the environment is deliberately managed with Conda/Mamba first.
+
+For active development of MuSiCal itself, clone its repository and use an editable install instead. For simply using MuSiCal as a SigFormer benchmark dependency, the direct Git install above is cleaner.
+
+### 5. Clone and install SigFormer
+
+SSH, if your GitHub SSH key is configured:
+
+```bash
+git clone git@github.com:zonglab/SigFormer.git
+cd SigFormer
+python -m pip install --no-deps ./
+```
+
+HTTPS, which is easier for most public users:
+
+```bash
+git clone https://github.com/zonglab/SigFormer.git
+cd SigFormer
+python -m pip install --no-deps ./
+```
+
+The installed package name is:
+
+```python
+import SigFormer
+```
+
+For researchers who expect to modify the source code while running the notebooks, an **editable install** is preferable:
+
+```bash
+python -m pip install --no-deps -e ./
+```
+
+With `-e`, changes made in the cloned source tree are immediately visible to Python without reinstalling the package. For a fixed release or production environment, `python -m pip install --no-deps ./` is the simpler immutable installation.
+
+---
+
+## Notebook workflow
+
+Start Jupyter from the repository root and select the `py_SgF` kernel.
+
+```bash
+jupyter lab
+```
+
+Every notebook begins with explicit runtime configuration, including:
+
+```python
+%matplotlib inline
+import logging, warnings
+logging.disable(logging.INFO)
+warnings.filterwarnings("ignore", category=FutureWarning)
+```
+
+No SigFormer module changes global matplotlib, logging, warning, or torch-thread settings during import.
+
+### `j01_benchmark.ipynb`
+
+The first half is an on-the-fly demonstration of four benchmark modes:
+
+1. `no_OOC`
+2. `random_OOC`
+3. `titration_COSMIC`
+4. `titration_OOC`
+
+Each mode has four cells: configuration, synthetic data generation + inference, visualization, and result saving. All selected methods are stored in one `DICT_runner` and executed through the same loop. `titration_OOC` is restricted to methods that explicitly estimate OOC/OOD mass.
+
+The second half demonstrates batch submission with `s09_bench_cli.py`, checklist generation, result loading, and plotting.
+
+### `j02_template.ipynb`
+
+This is the dataset-agnostic walkthrough for a new cohort. The default local test input is the bundled 30-sample mock cohort generated by the benchmark data generator:
+
+- 10 samples with exactly 3 active COSMIC signatures, including 1 per-sample OOC signature.
+- 10 samples with exactly 6 active COSMIC signatures and no OOC signature.
+- 10 samples with exactly 10 active COSMIC signatures, including 1 per-sample OOC signature.
+
+The workflow covers input loading, cache-first inference, reconstruction, UMAP/Leiden clustering, per-cluster composition plots, a selected necessity test, OOC recovery, positive residual profiles, and a residual cosine-similarity heatmap.
+
+### `j03_demo_PCAWG.ipynb`
+
+Runs the PCAWG workflow using bundled raw profiles and cached comparison-method outputs. SigFormer is inferred from the checkpoint in 500-sample chunks; comparison methods load cache first and are only executed when a cache is absent.
+
+### `j04_demo_normal.ipynb`
+
+Runs the normal-tissue workflow using the same shared analysis helpers. In addition to the common reconstruction, UMAP, clustering, and per-cluster workflow, it includes the normal background continuum, selected tissue/process stacked bars, OOC-depth analysis, and external residual-profile comparisons.
+
+---
+
+## Wrapper names and method tags
+
+Short tags are used only for compact internal identifiers such as UMAP columns. Logs and figure labels use full method names.
+
+| Tag | Full name |
+| --- | --- |
+| `SgF` | SigFormer, refined by default |
+| `Mus` | MuSiCal |
+| `SPA` | SigProfilerAssignment |
+| `sft` | sigfit |
+| `sLS` | sigLASSO |
+| `stl` | signature.tools.lib |
+
+`R_env=None` resolves to the currently active Conda environment through `CONDA_DEFAULT_ENV`. Therefore, when Python is launched from `conda activate SgF`, `R_env=None` has the same effect as `R_env="SgF"`.
+
+All tunable wrapper parameters are exposed in the notebook configuration cells rather than hidden inside helper modules.
+
+---
+
+## Python API example
+
+```python
+import pandas as pd
+import SigFormer
+from SigFormer.scripts.s06_wrapper import CLASS_wrapper_SigFormer
+
+model = CLASS_wrapper_SigFormer(
+    PATH_model=str(SigFormer.DEFAULT_MODEL_PATH),
+    device=None,
+    refine=True,
+)
+
+composition, reconstruction, ooc = model(
+    df_3nt_raw,
+    df_reference,
+    df_refmask,
+)
+```
+
+The wrapper returns refined SigFormer output by default. Use `model.predict_raw(...)` when the unrefined model output is required.
+
+---
+
+## Benchmark CLI
+
+After installation, either invocation is valid:
+
+```bash
+sigformer-benchmark --help
+```
+
+or:
+
+```bash
+python -m SigFormer.scripts.s09_bench_cli --help
+```
+
+Example:
+
+```bash
+sigformer-benchmark \
+    --mode no_OOC \
+    --depth-bin 1000-4000 \
+    --noise-bin 0.90-0.95 \
+    --active-bin 1-3 \
+    --compo-bin 1.0 \
+    --n-samples 12 \
+    --n-batches 1
+```
+
+---
+
+## Signature colors
+
+Stacked-bar colors are defined centrally in `s04_Util_apply.py`, but notebooks copy the palette before use:
+
+```python
+SIG_COLORS = analysis.DEFAULT_SIGNATURE_COLORS.copy()
+SIG_COLORS["SBS9"] = "#your_color"
+```
+
+Passing this dictionary to `plot_cluster_stackbar(..., sig_colors=SIG_COLORS)` changes that notebook's figures without mutating module-level global state.
+
+---
+
+## Resource licensing before a public GitHub release
+
+The source code is prepared under the MIT License. **Do not assume the same MIT licence can be applied to bundled third-party data.** The local handoff contains the current resources for testing, but `SigFormer/resource/**` and `example_data/template_mock/**` are intentionally ignored by `.gitignore` until their redistribution rights are confirmed.
+
+Read `THIRD_PARTY_DATA.md` before making the repository public. In particular, independently verify the redistribution terms for COSMIC reference data, PCAWG/normal-tissue resources, generated data derived from those references, and the pretrained model checkpoint.
+
+---
+
+## Reproducibility notes
+
+- Training-time utilities and the model architecture are separated from downstream application helpers.
+- Cohort inference is cache-first and processed in 500-sample chunks when computation is required.
+- Notebook-specific global settings are explicit and do not execute on module import.
+- Plotting is implemented with matplotlib.
+- The `audit/` and `reports/html/` directories contain validation records and rendered notebook runs from the handoff environment.
+
+---
+
+## Validation artifacts in this handoff
+
+`reports/html/` contains rendered fresh-kernel notebook runs from the handoff environment. `audit/FINAL_VALIDATION.md` states exactly which portions were executed and which optional dependencies were unavailable. The report intentionally distinguishes a successful source/path validation from a live run of an unavailable external method.
+
+For the 30-sample template test cohort, use `j02_template.ipynb` with `example_data/template_mock/`. The cohort metadata records the designed group, active-signature count, and per-sample OOC signature so that downstream results can be checked against known truth.
